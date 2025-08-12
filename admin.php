@@ -193,7 +193,7 @@ try {
 </head>
 <body class="bg-gray-50">
   <div class="flex h-screen bg-gray-50">
-    <?php include 'admin_sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">

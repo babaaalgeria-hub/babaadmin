@@ -8,51 +8,43 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 $menuItems = [
     [
         'id' => 'dashboard',
-        'title' => 'الصفحة الرئيسية',
+        'title' => 'لوحة الإدارة',
         'icon' => 'fa-home',
-        'url' => 'home.php',
-        'description' => 'لوحة التحكم الرئيسية',
+        'url' => 'admin.php',
+        'description' => 'إحصائيات النظام والملخص',
         'color' => 'indigo'
     ],
     [
-        'id' => 'add_order',
-        'title' => 'إضافة طلبية',
-        'icon' => 'fa-plus-circle',
-        'url' => 'addproduct.php',
-        'description' => 'إضافة طلب جديد',
-        'color' => 'emerald'
-    ],
-    [
-        'id' => 'my_orders',
-        'title' => 'طلبياتي',
-        'icon' => 'fa-shopping-cart',
-        'url' => 'myproducts.php',
-        'description' => 'عرض جميع الطلبات',
-        'color' => 'blue'
-    ],
-    [
-        'id' => 'customers',
-        'title' => 'إدارة عملائي',
+        'id' => 'manage_marketers',
+        'title' => 'إدارة المسوقين',
         'icon' => 'fa-users',
-        'url' => 'clients.php',
-        'description' => 'إدارة بيانات العملاء',
+        'url' => 'manage.php',
+        'description' => 'إدارة بيانات المسوقين',
         'color' => 'purple'
     ],
     [
+        'id' => 'orders',
+        'title' => 'إدارة الطلبيات',
+        'icon' => 'fa-shopping-cart',
+        'url' => 'editorders.php',
+        'description' => 'عرض وتحديث حالات الطلبيات',
+        'color' => 'blue'
+    ],
+    [
         'id' => 'withdrawals',
-        'title' => ' أرباحي',
+        'title' => 'سحوبات المسوقين',
         'icon' => 'fa-wallet',
-        'url' => 'withdraw.php',
-        'description' => 'سحب الأرباح',
+        'url' => 'withdraworders.php',
+        'description' => 'إدارة طلبات السحب',
         'color' => 'yellow'
     ],
     [
-        'id' => 'profile',
-        'title' => 'حسابي',
-        'icon' => 'fa-user-circle',
-        'url' => 'myaccount.php',
-        'description' => 'إعدادات الحساب',
-        'color' => 'gray'
+        'id' => 'add_marketer',
+        'title' => 'إضافة مسوق',
+        'icon' => 'fa-user-plus',
+        'url' => 'addnew.php',
+        'description' => 'إضافة مسوق جديد للنظام',
+        'color' => 'emerald'
     ]
 ];
 
