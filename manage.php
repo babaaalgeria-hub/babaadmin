@@ -53,6 +53,16 @@ try {
         }
     }
 
+    // Detect available columns in users table to build dynamic queries safely
+    $userColumns = [];
+    try {
+        $colsStmt = $conn->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'");
+        $colsStmt->execute();
+        $userColumns = array_flip(array_map(function($r){ return $r['COLUMN_NAME']; }, $colsStmt->fetchAll(PDO::FETCH_ASSOC)));
+    } catch (Throwable $ie) {
+        $userColumns = [];
+    }
+ 
     // Handle AJAX requests
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         header('Content-Type: application/json');
@@ -91,26 +101,57 @@ try {
                     $email = trim($_POST['email']);
                     
                     // Validation
-                    if (empty($username) || empty($firstName) || empty($lastName) || empty($phone)) {
-                        echo json_encode(['success' => false, 'message' => 'جميع الحقول مطلوبة']);
+                    if (empty($username) || empty($phone)) {
+                        echo json_encode(['success' => false, 'message' => 'اسم المتجر ورقم الهاتف مطلوبان']);
                         exit;
                     }
                     
-                    // Check if username or email already exists for other users
-                    $checkStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE (username = ? OR email = ?) AND id != ?");
-                    $checkStmt->execute([$username, $email, $marketerId]);
-                    if ($checkStmt->fetchColumn() > 0) {
-                        echo json_encode(['success' => false, 'message' => 'اسم المستخدم أو البريد الإلكتروني مستخدم بالفعل']);
-                        exit;
+                    // Unique checks based on existing columns
+                    // email uniqueness
+                    if (isset($userColumns['email']) && $email !== '') {
+                        $checkStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE email = ? AND id != ?");
+                        $checkStmt->execute([$email, $marketerId]);
+                        if ($checkStmt->fetchColumn() > 0) {
+                            echo json_encode(['success' => false, 'message' => 'البريد الإلكتروني مستخدم بالفعل']);
+                            exit;
+                        }
+                    }
+                    // phone uniqueness
+                    if (isset($userColumns['phone']) && $phone !== '') {
+                        $checkStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE phone = ? AND id != ?");
+                        $checkStmt->execute([$phone, $marketerId]);
+                        if ($checkStmt->fetchColumn() > 0) {
+                            echo json_encode(['success' => false, 'message' => 'رقم الهاتف مستخدم بالفعل']);
+                            exit;
+                        }
+                    }
+                    // username/store_name uniqueness if needed
+                    if (isset($userColumns['username']) && $username !== '') {
+                        $checkStmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE username = ? AND id != ?");
+                        $checkStmt->execute([$username, $marketerId]);
+                        if ($checkStmt->fetchColumn() > 0) {
+                            echo json_encode(['success' => false, 'message' => 'اسم المتجر مستخدم بالفعل']);
+                            exit;
+                        }
                     }
                     
-                    $updateStmt = $conn->prepare("
-                        UPDATE users 
-                        SET username = ?, first_name = ?, last_name = ?, phone = ?, email = ? 
-                        WHERE id = ? AND role = 'user'
-                    ");
+                    // Build dynamic update set according to existing columns
+                    $setParts = [];
+                    $values = [];
+                    if (isset($userColumns['username'])) { $setParts[] = 'username = ?'; $values[] = $username; }
+                    if (isset($userColumns['first_name'])) { $setParts[] = 'first_name = ?'; $values[] = $firstName; }
+                    if (isset($userColumns['last_name'])) { $setParts[] = 'last_name = ?'; $values[] = $lastName; }
+                    if (isset($userColumns['phone'])) { $setParts[] = 'phone = ?'; $values[] = $phone; }
+                    if (isset($userColumns['email'])) { $setParts[] = 'email = ?'; $values[] = $email; }
                     
-                    if ($updateStmt->execute([$username, $firstName, $lastName, $phone, $email, $marketerId])) {
+                    if (empty($setParts)) {
+                        echo json_encode(['success' => false, 'message' => 'لا توجد أعمدة قابلة للتحديث']);
+                        exit;
+                    }
+                    $values[] = $marketerId;
+                    $sql = "UPDATE users SET " . implode(', ', $setParts) . " WHERE id = ? AND role = 'user'";
+                    $updateStmt = $conn->prepare($sql);
+                    if ($updateStmt->execute($values)) {
                         echo json_encode(['success' => true, 'message' => 'تم تحديث بيانات المسوق بنجاح']);
                     } else {
                         echo json_encode(['success' => false, 'message' => 'فشل في تحديث البيانات']);
@@ -119,13 +160,15 @@ try {
                 exit;
                 
             case 'export_csv':
-                // Get all marketers data
-                $stmt = $conn->prepare("
-                    SELECT id, username, first_name, last_name, phone, email, created_at
-                    FROM users 
-                    WHERE role = 'user' 
-                    ORDER BY created_at DESC
-                ");
+                // Build dynamic select
+                $selectCols = ['id', 'username'];
+                if (isset($userColumns['first_name'])) { $selectCols[] = 'first_name'; }
+                if (isset($userColumns['last_name'])) { $selectCols[] = 'last_name'; }
+                if (isset($userColumns['phone'])) { $selectCols[] = 'phone'; }
+                if (isset($userColumns['email'])) { $selectCols[] = 'email'; }
+                $selectCols[] = 'created_at';
+                $sql = "SELECT " . implode(', ', $selectCols) . " FROM users WHERE role = 'user' ORDER BY created_at DESC";
+                $stmt = $conn->prepare($sql);
                 $stmt->execute();
                 $marketers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
@@ -139,27 +182,23 @@ try {
                 $output = fopen('php://output', 'w');
                 
                 // CSV Headers
-                fputcsv($output, [
-                    'الرقم التعريفي',
-                    'اسم المتجر',
-                    'الاسم الأول',
-                    'اللقب',
-                    'رقم الهاتف',
-                    'البريد الإلكتروني',
-                    'تاريخ التسجيل'
-                ]);
+                $headers = ['الرقم التعريفي', 'اسم المتجر'];
+                if (isset($userColumns['first_name'])) { $headers[] = 'الاسم الأول'; }
+                if (isset($userColumns['last_name'])) { $headers[] = 'اللقب'; }
+                if (isset($userColumns['phone'])) { $headers[] = 'رقم الهاتف'; }
+                if (isset($userColumns['email'])) { $headers[] = 'البريد الإلكتروني'; }
+                $headers[] = 'تاريخ التسجيل';
+                fputcsv($output, $headers);
                 
                 // CSV Data
                 foreach ($marketers as $marketer) {
-                    fputcsv($output, [
-                        $marketer['id'],
-                        $marketer['username'],
-                        $marketer['first_name'],
-                        $marketer['last_name'],
-                        $marketer['phone'],
-                        $marketer['email'],
-                        date('Y-m-d H:i:s', strtotime($marketer['created_at']))
-                    ]);
+                    $row = [$marketer['id'], $marketer['username']];
+                    if (isset($userColumns['first_name'])) { $row[] = $marketer['first_name'] ?? ''; }
+                    if (isset($userColumns['last_name'])) { $row[] = $marketer['last_name'] ?? ''; }
+                    if (isset($userColumns['phone'])) { $row[] = $marketer['phone'] ?? ''; }
+                    if (isset($userColumns['email'])) { $row[] = $marketer['email'] ?? ''; }
+                    $row[] = date('Y-m-d H:i:s', strtotime($marketer['created_at']));
+                    fputcsv($output, $row);
                 }
                 
                 fclose($output);
@@ -210,9 +249,16 @@ try {
     $params = [];
     
     if (!empty($search)) {
-        $whereClause .= " AND (username LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? OR email LIKE ?)";
+        // Limit search to columns that exist to avoid SQL errors
+        $searchable = [];
+        $searchable[] = 'username LIKE ?';
+        if (isset($userColumns['first_name'])) { $searchable[] = 'first_name LIKE ?'; }
+        if (isset($userColumns['last_name'])) { $searchable[] = 'last_name LIKE ?'; }
+        if (isset($userColumns['phone'])) { $searchable[] = 'phone LIKE ?'; }
+        if (isset($userColumns['email'])) { $searchable[] = 'email LIKE ?'; }
+        $whereClause .= ' AND (' . implode(' OR ', $searchable) . ')';
         $searchTerm = "%$search%";
-        $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm];
+        $params = array_fill(0, count($searchable), $searchTerm);
     }
 
     // Total marketers for pagination
@@ -222,13 +268,23 @@ try {
     $totalPages = ceil($totalRecords / $perPage);
 
     // Get marketers
-    $stmt = $conn->prepare("
-        SELECT id, username, first_name, last_name, phone, email, created_at
-        FROM users 
-        $whereClause
-        ORDER BY created_at DESC 
-        LIMIT $perPage OFFSET $offset
-    ");
+    // Build dynamic select with fallbacks for first/last name if columns missing
+    $selectParts = ['id', 'username'];
+    if (isset($userColumns['first_name'])) {
+        $selectParts[] = 'first_name';
+    } else {
+        $selectParts[] = "SUBSTRING_INDEX(username, ' ', 1) AS first_name";
+    }
+    if (isset($userColumns['last_name'])) {
+        $selectParts[] = 'last_name';
+    } else {
+        $selectParts[] = "SUBSTRING_INDEX(username, ' ', -1) AS last_name";
+    }
+    if (isset($userColumns['phone'])) { $selectParts[] = 'phone'; }
+    if (isset($userColumns['email'])) { $selectParts[] = 'email'; }
+    $selectParts[] = 'created_at';
+    $sql = "SELECT " . implode(', ', $selectParts) . " FROM users $whereClause ORDER BY created_at DESC LIMIT $perPage OFFSET $offset";
+    $stmt = $conn->prepare($sql);
     $stmt->execute($params);
     $marketers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -354,7 +410,7 @@ try {
   <div id="alertContainer"></div>
 
   <div class="flex h-screen bg-gray-50">
-    <?php include 'admin_sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
@@ -364,7 +420,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-users text-blue-600"></i>
+              <i class="fa-solid fa-users text-indigo-600"></i>
               <span>إدارة المسوقين</span>
             </div>
           </div>
@@ -1047,13 +1103,7 @@ try {
       });
     });
 
-    // Sidebar functions (assuming admin_sidebar.php has these)
-    function openSidebar() {
-      const sidebar = document.querySelector('.sidebar, [class*="sidebar"]');
-      if (sidebar) {
-        sidebar.classList.add('show');
-      }
-    }
+    // Sidebar controls are provided by sidebar.php
 
     // Performance monitoring
     window.addEventListener('load', function() {

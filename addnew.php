@@ -57,6 +57,16 @@ try {
         }
     }
 
+    // Discover available columns in users table to build dynamic INSERT
+    $userColumns = [];
+    try {
+        $colsStmt = $conn->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'");
+        $colsStmt->execute();
+        $userColumns = array_flip(array_map(function($r){ return $r['COLUMN_NAME']; }, $colsStmt->fetchAll(PDO::FETCH_ASSOC)));
+    } catch (Throwable $e) {
+        $userColumns = [];
+    }
+
     // معالجة إضافة مسوق جديد
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_marketer'])) {
         $firstName = trim($_POST['first_name'] ?? '');
@@ -98,10 +108,26 @@ try {
 
         if (empty($errors)) {
             // التحقق من عدم تكرار البريد الإلكتروني
-            $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt = $conn->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
                 $errors[] = 'البريد الإلكتروني مستخدم مسبقاً';
+            }
+            // التحقق من عدم تكرار رقم الهاتف إذا كان العمود موجود
+            if (isset($userColumns['phone'])) {
+                $stmt = $conn->prepare("SELECT id FROM users WHERE phone = ? LIMIT 1");
+                $stmt->execute([$phone]);
+                if ($stmt->fetch()) {
+                    $errors[] = 'رقم الهاتف مستخدم مسبقاً';
+                }
+            }
+            // التحقق من عدم تكرار اسم المتجر إذا كان العمود موجود
+            if (isset($userColumns['store_name'])) {
+                $stmt = $conn->prepare("SELECT id FROM users WHERE store_name = ? LIMIT 1");
+                $stmt->execute([$storeName]);
+                if ($stmt->fetch()) {
+                    $errors[] = 'اسم المتجر مستخدم مسبقاً';
+                }
             }
         }
 
@@ -113,19 +139,37 @@ try {
                 // تحديد اسم المستخدم
                 $username = $firstName . ' ' . $lastName;
                 
-                // إدراج المسوق الجديد
-                $stmt = $conn->prepare("
-                    INSERT INTO users (username, email, password, phone, state, created_at) 
-                    VALUES (?, ?, ?, ?, ?, NOW())
-                ");
-                
-                $stmt->execute([
-                    $username,
-                    $email,
-                    $hashedPassword,
-                    $phone,
-                    $state
-                ]);
+                // بناء الإدراج ديناميكياً حسب الأعمدة المتاحة
+                $data = [
+                    'username' => $username,
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'email' => $email,
+                    'password' => $hashedPassword,
+                    'phone' => $phone,
+                    'state' => $state,
+                    'store_name' => $storeName,
+                    'role' => 'user',
+                    'balance' => 0,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ];
+                // فلترة حسب الأعمدة الموجودة فعلاً
+                $insertCols = [];
+                $placeholders = [];
+                $insertVals = [];
+                foreach ($data as $col => $val) {
+                    if (isset($userColumns[$col])) {
+                        $insertCols[] = $col;
+                        $placeholders[] = '?';
+                        $insertVals[] = $val;
+                    }
+                }
+                if (empty($insertCols)) {
+                    throw new Exception('تعذر تحديد أعمدة الإدراج في جدول users');
+                }
+                $sql = 'INSERT INTO users (' . implode(',', $insertCols) . ') VALUES (' . implode(',', $placeholders) . ')';
+                $stmt = $conn->prepare($sql);
+                $stmt->execute($insertVals);
                 
                 $message = 'تم إضافة المسوق بنجاح!';
                 $messageType = 'success';
@@ -174,7 +218,7 @@ try {
 </head>
 <body class="bg-gray-50">
   <div class="flex h-screen bg-gray-50">
-    <?php include 'admin_sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
@@ -184,7 +228,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-user-plus text-blue-600"></i>
+              <i class="fa-solid fa-user-plus text-indigo-600"></i>
               <span>لوحة الإدارة - إضافة مسوق جديد</span>
             </div>
           </div>
@@ -517,12 +561,7 @@ try {
   </div>
 
   <script>
-    function openSidebar() {
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar) {
-        sidebar.classList.toggle('open');
-      }
-    }
+    // Sidebar controls are provided by sidebar.php
 
     // تأثيرات النموذج
     document.querySelectorAll('input').forEach(input => {

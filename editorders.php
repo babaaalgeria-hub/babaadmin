@@ -186,7 +186,7 @@ try {
 </head>
 <body class="bg-gray-50">
   <div class="flex h-screen bg-gray-50">
-    <?php include 'admin_sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
@@ -196,7 +196,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-shopping-cart text-blue-600"></i>
+              <i class="fa-solid fa-shopping-cart text-indigo-600"></i>
               <span>إدارة الطلبيات</span>
             </div>
           </div>
@@ -659,12 +659,7 @@ try {
   </div>
 
   <script>
-    function openSidebar() {
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar) {
-        sidebar.classList.toggle('open');
-      }
-    }
+    // Sidebar controls are provided by sidebar.php
 
     function openEditModal(orderId, currentStatus) {
       document.getElementById('editOrderId').value = orderId;
