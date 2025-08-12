@@ -201,9 +201,18 @@ try {
 
     // Get withdrawal requests with pagination
     $withdrawalsQuery = "
-        SELECT w.*, u.username, u.store_name AS user_store_name, u.balance,
-               (SELECT COUNT(*) FROM withdrawals WHERE user_id = u.id) as total_withdrawals,
-               (SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE user_id = u.id AND status = 'completed') as total_withdrawn
+        SELECT 
+            w.*, 
+            u.username, 
+            u.store_name AS user_store_name, 
+            u.balance,
+            GREATEST(0, u.balance - (
+                SELECT COALESCE(SUM(amount), 0) 
+                FROM withdrawals wp 
+                WHERE wp.user_id = u.id AND wp.status = 'pending'
+            )) AS available_balance,
+            (SELECT COUNT(*) FROM withdrawals WHERE user_id = u.id) as total_withdrawals,
+            (SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE user_id = u.id AND status = 'completed') as total_withdrawn
         FROM withdrawals w
         LEFT JOIN users u ON w.user_id = u.id
         $whereClause
@@ -547,7 +556,9 @@ try {
 
                         $displayStore = $withdrawal['store_name'] ?? ($withdrawal['user_store_name'] ?? 'غير محدد');
                         $displayUsername = $withdrawal['username'] ?? 'غير معروف';
-                        $availableBalance = isset($withdrawal['balance']) ? (float)$withdrawal['balance'] : 0.0;
+                        $availableBalance = isset($withdrawal['available_balance']) 
+                          ? (float)$withdrawal['available_balance'] 
+                          : (isset($withdrawal['balance']) ? max(0.0, (float)$withdrawal['balance']) : 0.0);
                       ?>
                       <tr class="withdrawal-row hover:bg-gray-50 transition-colors">
                         <td class="px-4 py-3">
