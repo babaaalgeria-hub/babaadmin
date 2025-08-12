@@ -741,6 +741,28 @@ try {
   </div>
 
   <script>
+    // Hydrate withdrawals data for details modal
+    const withdrawalsData = <?php
+      $clientWithdrawals = [];
+      foreach ($withdrawals as $w) {
+        $clientWithdrawals[] = [
+          'id' => (int)$w['id'],
+          'username' => (string)($w['username'] ?? ''),
+          'store_name' => (string)($w['store_name'] ?? ''),
+          'user_balance' => (float)($w['balance'] ?? 0),
+          'amount' => (float)$w['amount'],
+          'method' => (string)($w['method'] ?? ''),
+          'payment_details' => $w['payment_details'] ?? null,
+          'status' => (string)$w['status'],
+          'created_at' => (string)$w['created_at'],
+          'total_withdrawals' => isset($w['total_withdrawals']) ? (int)$w['total_withdrawals'] : null,
+          'total_withdrawn' => isset($w['total_withdrawn']) ? (float)$w['total_withdrawn'] : null
+        ];
+      }
+      echo json_encode($clientWithdrawals, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ?>;
+    const withdrawalsById = Object.fromEntries(withdrawalsData.map(w => [w.id, w]));
+
     let currentWithdrawalId = null;
 
     function openSidebar() {
@@ -802,54 +824,80 @@ try {
     });
 
     function viewWithdrawalDetails(withdrawalId) {
-      document.getElementById('withdrawalDetailsModal').classList.add('show');
+      const modal = document.getElementById('withdrawalDetailsModal');
+      const container = document.getElementById('withdrawalDetailsContent');
+      modal.classList.add('show');
       document.body.style.overflow = 'hidden';
-      
-      // Simulate loading withdrawal details (replace with actual AJAX call)
-      setTimeout(() => {
-        const content = `
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold text-gray-900 mb-2">معلومات المسوق</h4>
-              <div class="space-y-2 text-sm">
-                <p><span class="font-semibold">الاسم:</span> أحمد محمد</p>
-                <p><span class="font-semibold">المتجر:</span> متجر الإلكترونيات</p>
-                <p><span class="font-semibold">البريد:</span> ahmed@example.com</p>
-                <p><span class="font-semibold">الهاتف:</span> 0123456789</p>
-              </div>
-            </div>
-            
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold text-gray-900 mb-2">تفاصيل السحب</h4>
-              <div class="space-y-2 text-sm">
-                <p><span class="font-semibold">رقم الطلب:</span> #${withdrawalId}</p>
-                <p><span class="font-semibold">المبلغ:</span> 15,000.00 دج</p>
-                <p><span class="font-semibold">طريقة الدفع:</span> موبيلي</p>
-                <p><span class="font-semibold">رقم الهاتف:</span> 0555123456</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="bg-blue-50 rounded-lg p-4 mt-4">
-            <h4 class="font-semibold text-blue-900 mb-2">إحصائيات المسوق</h4>
-            <div class="grid grid-cols-3 gap-4 text-sm">
-              <div class="text-center">
-                <div class="font-bold text-blue-600">25,000.00 دج</div>
-                <div class="text-blue-700">الرصيد الحالي</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-green-600">8</div>
-                <div class="text-green-700">طلبات السحب</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-purple-600">85,000.00 دج</div>
-                <div class="text-purple-700">إجمالي المسحوب</div>
-              </div>
+      const w = withdrawalsById[withdrawalId];
+      if (!w) {
+        container.innerHTML = '<div class="text-center text-red-600">تعذر العثور على بيانات هذا الطلب.</div>';
+        return;
+      }
+      let methodText = 'غير معروف';
+      if (w.method === 'baridi_mob') methodText = 'بريدي موب';
+      else if (w.method === 'ccp') methodText = 'بريد الجزائر (CCP)';
+      else if (w.method === 'flexy') methodText = 'فليكسي';
+      let detailsText = '';
+      if (w.payment_details) {
+        try {
+          const d = JSON.parse(w.payment_details);
+          if (w.method === 'ccp') {
+            const first = d.ccp_first_name || '';
+            const last = d.ccp_last_name || '';
+            const num = d.ccp_number || '';
+            const cle = d.ccp_cle ? '-' + d.ccp_cle : '';
+            const wilaya = d.ccp_wilaya || '';
+            const baladiya = d.ccp_baladiya || '';
+            detailsText = `${first} ${last} — ${num}${cle} — ${wilaya}/${baladiya}`.trim();
+          } else if (w.method === 'baridi_mob') {
+            detailsText = d.baridi_mob || '';
+          } else if (w.method === 'flexy') {
+            detailsText = d.flexy_phone || '';
+          }
+        } catch (_) {}
+      }
+      const statsBalance = typeof w.user_balance === 'number' ? w.user_balance : 0;
+      const statsCount = typeof w.total_withdrawals === 'number' ? w.total_withdrawals : 0;
+      const statsSum = typeof w.total_withdrawn === 'number' ? w.total_withdrawn : 0;
+      container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-gray-50 rounded-lg p-4">
+            <h4 class="font-semibold text-gray-900 mb-2">معلومات المسوق</h4>
+            <div class="space-y-2 text-sm">
+              <p><span class="font-semibold">الاسم:</span> ${w.username || 'غير محدد'}</p>
+              <p><span class="font-semibold">المتجر:</span> ${w.store_name || 'غير محدد'}</p>
             </div>
           </div>
-        `;
-        document.getElementById('withdrawalDetailsContent').innerHTML = content;
-      }, 500);
+          <div class="bg-gray-50 rounded-lg p-4">
+            <h4 class="font-semibold text-gray-900 mb-2">تفاصيل السحب</h4>
+            <div class="space-y-2 text-sm">
+              <p><span class="font-semibold">رقم الطلب:</span> #${w.id}</p>
+              <p><span class="font-semibold">المبلغ:</span> ${Number(w.amount).toLocaleString('ar-DZ', {minimumFractionDigits: 2, maximumFractionDigits: 2})} دج</p>
+              <p><span class="font-semibold">طريقة الدفع:</span> ${methodText}</p>
+              ${detailsText ? `<p><span class=\"font-semibold\">تفاصيل:</span> ${detailsText}</p>` : ''}
+              <p><span class="font-semibold">الحالة:</span> ${w.status}</p>
+              <p><span class="font-semibold">التاريخ:</span> ${w.created_at}</p>
+            </div>
+          </div>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-4 mt-4">
+          <h4 class="font-semibold text-blue-900 mb-2">إحصائيات المسوق</h4>
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div class="text-center">
+              <div class="font-bold text-blue-600">${Number(statsBalance).toLocaleString('ar-DZ', {minimumFractionDigits: 2, maximumFractionDigits: 2})} دج</div>
+              <div class="text-blue-700">الرصيد الحالي</div>
+            </div>
+            <div class="text-center">
+              <div class="font-bold text-green-600">${statsCount}</div>
+              <div class="text-green-700">طلبات السحب</div>
+            </div>
+            <div class="text-center">
+              <div class="font-bold text-purple-600">${Number(statsSum).toLocaleString('ar-DZ', {minimumFractionDigits: 2, maximumFractionDigits: 2})} دج</div>
+              <div class="text-purple-700">إجمالي المسحوب</div>
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     function closeWithdrawalDetailsModal() {
