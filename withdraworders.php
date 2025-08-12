@@ -806,9 +806,13 @@ try {
     let currentWithdrawalId = null;
 
     function openSidebar() {
-      const sidebar = document.querySelector('.sidebar');
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
-        sidebar.classList.toggle('open');
+        sidebar.classList.add('open');
+      }
+      if (overlay) {
+        overlay.classList.remove('hidden');
       }
     }
 

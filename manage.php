@@ -1105,9 +1105,13 @@ try {
 
     // Sidebar functions (assuming admin_sidebar.php has these)
     function openSidebar() {
-      const sidebar = document.querySelector('.sidebar, [class*="sidebar"]');
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
-        sidebar.classList.add('show');
+        sidebar.classList.add('open');
+      }
+      if (overlay) {
+        overlay.classList.remove('hidden');
       }
     }
 
