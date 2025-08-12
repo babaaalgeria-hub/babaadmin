@@ -199,7 +199,7 @@ try {
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div class="px-4 py-3 flex items-center justify-between">
           <div class="flex items-center gap-4">
-            <button id="mobileMenuBtn" onclick="openSidebar()" class="lg:hidden p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors">
+            <button id="mobileMenuBtn" onclick="toggleSidebar()" class="lg:hidden p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors">
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
@@ -505,9 +505,33 @@ try {
       const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
         sidebar.classList.add('open');
+        sidebar.style.transform = 'translateX(0)';
       }
       if (overlay) {
         overlay.classList.remove('hidden');
+      }
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
+      if (sidebar) {
+        sidebar.classList.remove('open');
+        sidebar.style.transform = 'translateX(100%)';
+      }
+      if (overlay) {
+        overlay.classList.add('hidden');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar && sidebar.classList.contains('open')) {
+        closeSidebar();
+      } else {
+        openSidebar();
       }
     }
 
