@@ -56,7 +56,8 @@ try {
     // Admin Statistics
     $totalProfits = 0.0;
     $pendingWithdrawals = 0.0;
-    $todayOrders = 0;
+    $pendingWithdrawalsCount = 0;
+    $pendingOrders = 0;
     $weeklyOrders = 0;
     $monthlyOrders = 0;
     $completedOrders = 0;
@@ -76,24 +77,18 @@ try {
     $q->execute();
     $totalProfits = (float)$q->fetchColumn();
 
-    // الأرباح في انتظار السحب
-    $q = $conn->prepare("
-        SELECT COALESCE(SUM(w.amount), 0)
-        FROM withdrawal_requests w
-        WHERE w.status = 'pending'
-    ");
+    // مبالغ السحب في الانتظار + عدد الطلبات
+    $q = $conn->prepare("SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE status = 'pending'");
     $q->execute();
     $pendingWithdrawals = (float)$q->fetchColumn();
-
-    // طلبات اليوم قيد الانتظار
-    $q = $conn->prepare("
-        SELECT COUNT(*)
-        FROM orders
-        WHERE DATE(created_at) = CURDATE() 
-        AND status IN ('pending', 'confirmed', 'processing')
-    ");
+    $q = $conn->prepare("SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'");
     $q->execute();
-    $todayOrders = (int)$q->fetchColumn();
+    $pendingWithdrawalsCount = (int)$q->fetchColumn();
+
+    // الطلبات قيد الانتظار (عام)
+    $q = $conn->prepare("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'confirmed', 'processing')");
+    $q->execute();
+    $pendingOrders = (int)$q->fetchColumn();
 
     // طلبات الأسبوع
     $q = $conn->prepare("
@@ -146,7 +141,7 @@ try {
     $withdrawalRequests = [];
     $q = $conn->prepare("
         SELECT w.*, u.username, u.phone
-        FROM withdrawal_requests w
+        FROM withdrawals w
         JOIN users u ON w.user_id = u.id
         WHERE w.status = 'pending'
         ORDER BY w.created_at DESC
@@ -254,7 +249,7 @@ try {
                 </div>
               </div>
               <div class="text-2xl font-bold mt-2"><?php echo number_format($pendingWithdrawals, 2); ?></div>
-              <div class="text-sm text-gray-600">في انتظار السحب</div>
+              <div class="text-sm text-gray-600">مبالغ في انتظار السحب (<?php echo (int)$pendingWithdrawalsCount; ?> طلب)</div>
               <div class="text-xs text-gray-500 mt-1">دج</div>
             </div>
 
@@ -263,9 +258,9 @@ try {
                 <div class="p-2 rounded-lg bg-orange-500 text-white">
                   <i class="fa-solid fa-clock"></i>
                 </div>
-                <div class="text-sm text-orange-600 font-semibold">اليوم</div>
+                <div class="text-sm text-orange-600 font-semibold">الكل</div>
               </div>
-              <div class="text-2xl font-bold mt-2"><?php echo number_format($todayOrders); ?></div>
+              <div class="text-2xl font-bold mt-2"><?php echo number_format($pendingOrders); ?></div>
               <div class="text-sm text-gray-600">طلبات قيد الانتظار</div>
             </div>
 
@@ -341,7 +336,7 @@ try {
                 </div>
               </div>
               <div class="text-2xl font-bold mt-2"><?php echo number_format($totalProfits / max($totalUsers, 1), 2); ?></div>
-              <div class="text-sm text-gray-600">متوسط ربح المسوق</div>
+              <div class="text-sm text-gray-600">أرباح المسوقين</div>
             </div>
           </section>
 
@@ -430,7 +425,7 @@ try {
                 <i class="fa-solid fa-list-ul text-emerald-600"></i>
                 طلبيات حديثة
               </h3>
-              <a href="orders.php" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">
+              <a href="editorders.php" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">
                 عرض الكل <i class="fa-solid fa-arrow-left mr-1"></i>
               </a>
             </div>
