@@ -228,7 +228,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-user-plus text-blue-600"></i>
+              <i class="fa-solid fa-user-plus text-indigo-600"></i>
               <span>لوحة الإدارة - إضافة مسوق جديد</span>
             </div>
           </div>

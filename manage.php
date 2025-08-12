@@ -420,7 +420,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-users text-blue-600"></i>
+              <i class="fa-solid fa-users text-indigo-600"></i>
               <span>إدارة المسوقين</span>
             </div>
           </div>

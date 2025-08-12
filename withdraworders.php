@@ -314,7 +314,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-money-bill-transfer text-green-600"></i>
+              <i class="fa-solid fa-money-bill-transfer text-indigo-600"></i>
               <span>إدارة سحوبات المسوقين</span>
             </div>
           </div>

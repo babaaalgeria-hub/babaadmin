@@ -196,7 +196,7 @@ try {
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
-              <i class="fa-solid fa-shopping-cart text-blue-600"></i>
+              <i class="fa-solid fa-shopping-cart text-indigo-600"></i>
               <span>إدارة الطلبيات</span>
             </div>
           </div>
