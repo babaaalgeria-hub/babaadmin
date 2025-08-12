@@ -1103,17 +1103,7 @@ try {
       });
     });
 
-    // Sidebar functions (assuming admin_sidebar.php has these)
-    function openSidebar() {
-      const sidebar = document.getElementById('sidebar');
-      const overlay = document.getElementById('sidebarOverlay');
-      if (sidebar) {
-        sidebar.classList.add('open');
-      }
-      if (overlay) {
-        overlay.classList.remove('hidden');
-      }
-    }
+    // Sidebar controls are provided by sidebar.php
 
     // Performance monitoring
     window.addEventListener('load', function() {

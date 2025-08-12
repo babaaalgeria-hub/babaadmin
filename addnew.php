@@ -561,16 +561,7 @@ try {
   </div>
 
   <script>
-    function openSidebar() {
-      const sidebar = document.getElementById('sidebar');
-      const overlay = document.getElementById('sidebarOverlay');
-      if (sidebar) {
-        sidebar.classList.add('open');
-      }
-      if (overlay) {
-        overlay.classList.remove('hidden');
-      }
-    }
+    // Sidebar controls are provided by sidebar.php
 
     // تأثيرات النموذج
     document.querySelectorAll('input').forEach(input => {
