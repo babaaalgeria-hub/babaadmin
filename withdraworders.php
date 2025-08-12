@@ -55,6 +55,45 @@ try {
 
     // Handle withdrawal status update
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+        if ($_POST['action'] === 'get_withdrawal_details') {
+            header('Content-Type: application/json; charset=utf-8');
+            $withdrawalId = (int)($_POST['withdrawal_id'] ?? 0);
+            if ($withdrawalId <= 0) {
+                echo json_encode(['success' => false, 'message' => 'معرّف غير صالح']);
+                exit;
+            }
+            try {
+                $stmt = $conn->prepare("SELECT w.*, u.username, u.store_name, u.phone AS user_phone, u.balance FROM withdrawals w LEFT JOIN users u ON w.user_id = u.id WHERE w.id = ? LIMIT 1");
+                $stmt->execute([$withdrawalId]);
+                $rec = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$rec) {
+                    echo json_encode(['success' => false, 'message' => 'السجل غير موجود']);
+                    exit;
+                }
+                $details = [];
+                if (!empty($rec['payment_details'])) {
+                    $tmp = @json_decode((string)$rec['payment_details'], true);
+                    if (is_array($tmp)) { $details = $tmp; }
+                }
+                echo json_encode(['success' => true, 'data' => [
+                    'id' => (int)$rec['id'],
+                    'username' => (string)($rec['username'] ?? ''),
+                    'store_name' => (string)($rec['store_name'] ?? ''),
+                    'user_phone' => (string)($rec['user_phone'] ?? ''),
+                    'amount' => (float)$rec['amount'],
+                    'method' => (string)$rec['method'],
+                    'payment_details' => $details,
+                    'status' => (string)$rec['status'],
+                    'created_at' => (string)$rec['created_at'],
+                    'processed_at' => (string)($rec['processed_at'] ?? ''),
+                    'proof_image' => (string)($rec['proof_image'] ?? ''),
+                    'balance' => (float)($rec['balance'] ?? 0),
+                ]]);
+            } catch (Throwable $je) {
+                echo json_encode(['success' => false, 'message' => 'فشل الجلب']);
+            }
+            exit;
+        }
         if ($_POST['action'] === 'update_withdrawal_status') {
             $withdrawalId = (int)$_POST['withdrawal_id'];
             $newStatus = $_POST['new_status'];
@@ -79,23 +118,48 @@ try {
             
             $validStatuses = ['pending', 'completed', 'cancelled'];
             if (in_array($newStatus, $validStatuses)) {
-                $updateQuery = "UPDATE withdrawal_requests SET status = ?, cancel_reason = ?";
-                $params = [$newStatus, $cancelReason];
+                // Load and merge payment_details JSON to add cancel_reason if provided
+                $existingDetails = [];
+                try {
+                    $detStmt = $conn->prepare("SELECT payment_details FROM withdrawals WHERE id = ?");
+                    $detStmt->execute([$withdrawalId]);
+                    $detRaw = $detStmt->fetchColumn();
+                    $decoded = @json_decode((string)$detRaw, true);
+                    if (is_array($decoded)) { $existingDetails = $decoded; }
+                } catch (Throwable $ie) { /* ignore */ }
+                if ($cancelReason !== '') {
+                    $existingDetails['cancel_reason'] = $cancelReason;
+                }
+                $detailsJson = !empty($existingDetails) ? json_encode($existingDetails, JSON_UNESCAPED_UNICODE) : (isset($detRaw) ? (string)$detRaw : null);
                 
+                // Build dynamic update
+                $updateFields = ['status' => $newStatus];
+                $params = [];
+                
+                if ($detailsJson !== null) {
+                    $updateFields['payment_details'] = $detailsJson;
+                }
                 if ($proofImage) {
-                    $updateQuery .= ", proof_image = ?";
-                    $params[] = $proofImage;
+                    $updateFields['proof_image'] = $proofImage;
+                }
+                if (in_array($newStatus, ['completed', 'cancelled'])) {
+                    $updateFields['processed_at'] = date('Y-m-d H:i:s');
                 }
                 
-                $updateQuery .= " WHERE id = ?";
+                $setParts = [];
+                foreach ($updateFields as $col => $val) {
+                    $setParts[] = "$col = ?";
+                    $params[] = $val;
+                }
                 $params[] = $withdrawalId;
                 
+                $updateQuery = "UPDATE withdrawals SET " . implode(', ', $setParts) . " WHERE id = ?";
                 $updateStmt = $conn->prepare($updateQuery);
                 $updateStmt->execute($params);
                 
-                // If withdrawal is completed, update marketer balance
+                // If withdrawal is completed, update user balance
                 if ($newStatus === 'completed') {
-                    $stmt = $conn->prepare("SELECT user_id, amount FROM withdrawal_requests WHERE id = ?");
+                    $stmt = $conn->prepare("SELECT user_id, amount FROM withdrawals WHERE id = ?");
                     $stmt->execute([$withdrawalId]);
                     $withdrawal = $stmt->fetch(PDO::FETCH_ASSOC);
                     
@@ -123,12 +187,12 @@ try {
     $params = [];
 
     if ($statusFilter !== 'all') {
-        $whereConditions[] = "wr.status = ?";
+        $whereConditions[] = "w.status = ?";
         $params[] = $statusFilter;
     }
 
     if (!empty($searchTerm)) {
-        $whereConditions[] = "(u.username LIKE ? OR u.store_name LIKE ? OR wr.id LIKE ?)";
+        $whereConditions[] = "(u.username LIKE ? OR u.store_name LIKE ? OR w.id LIKE ?)";
         $searchParam = "%$searchTerm%";
         $params = array_merge($params, [$searchParam, $searchParam, $searchParam]);
     }
@@ -137,13 +201,13 @@ try {
 
     // Get withdrawal requests with pagination
     $withdrawalsQuery = "
-        SELECT wr.*, u.username, u.store_name, u.balance,
-               (SELECT COUNT(*) FROM withdrawal_requests WHERE user_id = u.id) as total_withdrawals,
-               (SELECT COALESCE(SUM(amount), 0) FROM withdrawal_requests WHERE user_id = u.id AND status = 'completed') as total_withdrawn
-        FROM withdrawal_requests wr
-        LEFT JOIN users u ON wr.user_id = u.id
+        SELECT w.*, u.username, u.store_name AS user_store_name, u.balance,
+               (SELECT COUNT(*) FROM withdrawals WHERE user_id = u.id) as total_withdrawals,
+               (SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE user_id = u.id AND status = 'completed') as total_withdrawn
+        FROM withdrawals w
+        LEFT JOIN users u ON w.user_id = u.id
         $whereClause
-        ORDER BY wr.created_at DESC
+        ORDER BY w.created_at DESC
         LIMIT $perPage OFFSET $offset
     ";
     
@@ -154,8 +218,8 @@ try {
     // Get total count for pagination
     $countQuery = "
         SELECT COUNT(*)
-        FROM withdrawal_requests wr
-        LEFT JOIN users u ON wr.user_id = u.id
+        FROM withdrawals w
+        LEFT JOIN users u ON w.user_id = u.id
         $whereClause
     ";
     $countStmt = $conn->prepare($countQuery);
@@ -167,37 +231,37 @@ try {
     $stats = [];
     
     // Pending withdrawal requests count
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawal_requests WHERE status = 'pending'");
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'");
     $stmt->execute();
     $stats['pending_count'] = (int)$stmt->fetchColumn();
 
     // Pending withdrawal amount
-    $stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) FROM withdrawal_requests WHERE status = 'pending'");
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE status = 'pending'");
     $stmt->execute();
     $stats['pending_amount'] = (float)$stmt->fetchColumn();
 
     // Total available balance in marketers accounts
-    $stmt = $conn->prepare("SELECT COALESCE(SUM(balance), 0) FROM users WHERE user_type = 'marketer'");
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(balance), 0) FROM users WHERE role = 'user'");
     $stmt->execute();
     $stats['total_available_balance'] = (float)$stmt->fetchColumn();
 
     // Completed withdrawals amount
-    $stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) FROM withdrawal_requests WHERE status = 'completed'");
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE status = 'completed'");
     $stmt->execute();
     $stats['completed_amount'] = (float)$stmt->fetchColumn();
 
     // Completed withdrawals count
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawal_requests WHERE status = 'completed'");
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawals WHERE status = 'completed'");
     $stmt->execute();
     $stats['completed_count'] = (int)$stmt->fetchColumn();
 
     // Total withdrawals
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawal_requests");
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawals");
     $stmt->execute();
     $stats['total'] = (int)$stmt->fetchColumn();
 
     // Cancelled withdrawals
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawal_requests WHERE status = 'cancelled'");
+    $stmt = $conn->prepare("SELECT COUNT(*) FROM withdrawals WHERE status = 'cancelled'");
     $stmt->execute();
     $stats['cancelled'] = (int)$stmt->fetchColumn();
 
@@ -240,7 +304,7 @@ try {
 </head>
 <body class="bg-gray-50">
   <div class="flex h-screen bg-gray-50">
-    <?php include 'admin_sidebar.php'; ?>
+    <?php include 'sidebar.php'; ?>
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
@@ -435,34 +499,93 @@ try {
                     </tr>
                   <?php else: ?>
                     <?php foreach ($withdrawals as $withdrawal): ?>
+                      <?php
+                        // Prepare status visuals
+                        $statusColors = [
+                            'pending' => 'bg-yellow-100 text-yellow-800',
+                            'completed' => 'bg-green-100 text-green-800',
+                            'cancelled' => 'bg-red-100 text-red-800'
+                        ];
+                        $statusText = [
+                            'pending' => 'قيد الانتظار',
+                            'completed' => 'مكتمل',
+                            'cancelled' => 'ملغي'
+                        ];
+                        $statusIcons = [
+                            'pending' => 'fa-clock',
+                            'completed' => 'fa-check-circle',
+                            'cancelled' => 'fa-times-circle'
+                        ];
+                        $statusClass = $statusColors[$withdrawal['status']] ?? 'bg-gray-100 text-gray-800';
+                        $statusLabel = $statusText[$withdrawal['status']] ?? $withdrawal['status'];
+                        $statusIcon = $statusIcons[$withdrawal['status']] ?? 'fa-question';
+
+                        // Payment method mapping
+                        $paymentMethodKey = $withdrawal['method'] ?? 'flexy';
+                        $paymentMethods = [
+                            'flexy' => ['text' => 'فليكسي', 'class' => 'payment-method-flexi', 'icon' => 'fa-mobile'],
+                            'baridi_mob' => ['text' => 'بريدي موب', 'class' => 'payment-method-ccp', 'icon' => 'fa-building-columns'],
+                            'ccp' => ['text' => 'بريد الجزائر', 'class' => 'payment-method-ccp', 'icon' => 'fa-building-columns'],
+                            'mobili' => ['text' => 'موبيليس', 'class' => 'payment-method-mobili', 'icon' => 'fa-mobile']
+                        ];
+                        $methodMeta = $paymentMethods[$paymentMethodKey] ?? $paymentMethods['flexy'];
+
+                        // Payment details JSON
+                        $detailsArr = [];
+                        if (!empty($withdrawal['payment_details'])) {
+                            $tmp = @json_decode((string)$withdrawal['payment_details'], true);
+                            if (is_array($tmp)) { $detailsArr = $tmp; }
+                        }
+                        $methodNote = '';
+                        if ($paymentMethodKey === 'flexy' && !empty($detailsArr['flexy_phone'])) {
+                            $methodNote = 'الهاتف: ' . htmlspecialchars($detailsArr['flexy_phone']);
+                        } elseif ($paymentMethodKey === 'baridi_mob' && !empty($detailsArr['baridi_mob'])) {
+                            $methodNote = 'رقم الحساب: ' . htmlspecialchars($detailsArr['baridi_mob']);
+                        } elseif ($paymentMethodKey === 'ccp' && !empty($detailsArr['ccp'])) {
+                            $methodNote = 'CCP: ' . htmlspecialchars($detailsArr['ccp']);
+                        }
+
+                        $displayStore = $withdrawal['store_name'] ?? ($withdrawal['user_store_name'] ?? 'غير محدد');
+                        $displayUsername = $withdrawal['username'] ?? 'غير معروف';
+                        $availableBalance = isset($withdrawal['balance']) ? (float)$withdrawal['balance'] : 0.0;
+                      ?>
                       <tr class="withdrawal-row hover:bg-gray-50 transition-colors">
                         <td class="px-4 py-3">
-                          <span class="payment-method-badge <?php echo $method['class']; ?>">
-                            <i class="fa-solid <?php echo $method['icon']; ?>"></i>
-                            <?php echo $method['text']; ?>
-                          </span>
+                          <span class="text-sm font-semibold text-blue-600">#<?php echo (int)$withdrawal['id']; ?></span>
                         </td>
                         <td class="px-4 py-3">
-                          <?php
-                          $statusColors = [
-                              'pending' => 'bg-yellow-100 text-yellow-800',
-                              'completed' => 'bg-green-100 text-green-800',
-                              'cancelled' => 'bg-red-100 text-red-800'
-                          ];
-                          $statusText = [
-                              'pending' => 'قيد الانتظار',
-                              'completed' => 'مكتمل',
-                              'cancelled' => 'ملغي'
-                          ];
-                          $statusIcons = [
-                              'pending' => 'fa-clock',
-                              'completed' => 'fa-check-circle',
-                              'cancelled' => 'fa-times-circle'
-                          ];
-                          $statusClass = $statusColors[$withdrawal['status']] ?? 'bg-gray-100 text-gray-800';
-                          $statusLabel = $statusText[$withdrawal['status']] ?? $withdrawal['status'];
-                          $statusIcon = $statusIcons[$withdrawal['status']] ?? 'fa-question';
-                          ?>
+                          <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                              <i class="fa-solid fa-user text-xs"></i>
+                            </div>
+                            <div>
+                              <span class="text-sm font-semibold text-gray-900"><?php echo htmlspecialchars($displayUsername); ?></span>
+                              <span class="text-xs text-gray-500 block">(<?php echo htmlspecialchars($displayStore); ?>)</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="text-sm font-bold text-green-600"><?php echo number_format($availableBalance, 2); ?> دج</span>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="text-sm font-bold text-red-600"><?php echo number_format((float)$withdrawal['amount'], 2); ?> دج</span>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="text-sm text-gray-900"><?php echo number_format((int)$withdrawal['total_withdrawals']); ?></span>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="text-sm font-bold text-blue-600"><?php echo number_format((float)$withdrawal['total_withdrawn'], 2); ?> دج</span>
+                        </td>
+                        <td class="px-4 py-3">
+                          <span class="payment-method-badge <?php echo $methodMeta['class']; ?>">
+                            <i class="fa-solid <?php echo $methodMeta['icon']; ?>"></i>
+                            <?php echo $methodMeta['text']; ?>
+                          </span>
+                          <?php if ($methodNote): ?>
+                            <div class="text-[11px] text-gray-500 mt-1"><?php echo $methodNote; ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td class="px-4 py-3">
                           <span class="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-full <?php echo $statusClass; ?>">
                             <i class="fa-solid <?php echo $statusIcon; ?>"></i>
                             <?php echo $statusLabel; ?>
@@ -473,18 +596,18 @@ try {
                         </td>
                         <td class="px-4 py-3">
                           <div class="flex gap-1">
-                            <button onclick="viewWithdrawalDetails(<?php echo $withdrawal['id']; ?>)" 
+                            <button onclick="viewWithdrawalDetails(<?php echo (int)$withdrawal['id']; ?>)" 
                                     class="text-indigo-600 hover:text-indigo-800 text-sm font-semibold px-2 py-1 rounded-lg hover:bg-indigo-50 transition-all" 
                                     title="عرض التفاصيل">
                               <i class="fa-solid fa-eye"></i>
                             </button>
-                            <button onclick="openEditWithdrawalModal(<?php echo $withdrawal['id']; ?>, '<?php echo $withdrawal['status']; ?>')" 
+                            <button onclick="openEditWithdrawalModal(<?php echo (int)$withdrawal['id']; ?>, '<?php echo htmlspecialchars($withdrawal['status'], ENT_QUOTES, 'UTF-8'); ?>')" 
                                     class="text-blue-600 hover:text-blue-800 text-sm font-semibold px-2 py-1 rounded-lg hover:bg-blue-50 transition-all"
                                     title="تحديث الحالة">
                               <i class="fa-solid fa-edit"></i>
                             </button>
                             <?php if ($withdrawal['status'] === 'pending'): ?>
-                            <button onclick="quickApproveWithdrawal(<?php echo $withdrawal['id']; ?>)" 
+                            <button onclick="quickApproveWithdrawal(<?php echo (int)$withdrawal['id']; ?>)" 
                                     class="text-green-600 hover:text-green-800 text-sm font-semibold px-2 py-1 rounded-lg hover:bg-green-50 transition-all"
                                     title="موافقة سريعة">
                               <i class="fa-solid fa-check"></i>
@@ -743,52 +866,59 @@ try {
     function viewWithdrawalDetails(withdrawalId) {
       document.getElementById('withdrawalDetailsModal').classList.add('show');
       document.body.style.overflow = 'hidden';
-      
-      // Simulate loading withdrawal details (replace with actual AJAX call)
-      setTimeout(() => {
-        const content = `
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold text-gray-900 mb-2">معلومات المسوق</h4>
-              <div class="space-y-2 text-sm">
-                <p><span class="font-semibold">الاسم:</span> أحمد محمد</p>
-                <p><span class="font-semibold">المتجر:</span> متجر الإلكترونيات</p>
-                <p><span class="font-semibold">البريد:</span> ahmed@example.com</p>
-                <p><span class="font-semibold">الهاتف:</span> 0123456789</p>
+      const detailsEl = document.getElementById('withdrawalDetailsContent');
+      detailsEl.innerHTML = '<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div><p class="text-gray-500 mt-2">جاري تحميل التفاصيل...</p></div>';
+      const formData = new FormData();
+      formData.append('action', 'get_withdrawal_details');
+      formData.append('withdrawal_id', String(withdrawalId));
+      fetch(window.location.href, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(res => {
+          if (!res || !res.success) { throw new Error('فشل الجلب'); }
+          const d = res.data;
+          const methodMap = {
+            'flexy': { label: 'فليكسي' },
+            'baridi_mob': { label: 'بريدي موب' },
+            'ccp': { label: 'بريد الجزائر' },
+            'mobili': { label: 'موبيليس' }
+          };
+          const methodLabel = (methodMap[d.method]?.label) || d.method;
+          let methodExtra = '';
+          if (d.method === 'flexy' && d.payment_details?.flexy_phone) methodExtra = 'الهاتف: ' + d.payment_details.flexy_phone;
+          if (d.method === 'baridi_mob' && d.payment_details?.baridi_mob) methodExtra = 'رقم الحساب: ' + d.payment_details.baridi_mob;
+          if (d.method === 'ccp' && d.payment_details?.ccp) methodExtra = 'CCP: ' + d.payment_details.ccp;
+          const proof = d.proof_image ? `<a href="${d.proof_image}" target="_blank" class="text-blue-600 underline">عرض الإثبات</a>` : '<span class="text-gray-400">لا يوجد</span>';
+          const processed = d.processed_at ? d.processed_at : '<span class="text-gray-400">—</span>';
+          detailsEl.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-semibold text-gray-900 mb-2">معلومات المسوق</h4>
+                <div class="space-y-2 text-sm">
+                  <p><span class="font-semibold">الاسم:</span> ${d.username || 'غير معروف'}</p>
+                  <p><span class="font-semibold">المتجر:</span> ${d.store_name || '—'}</p>
+                  <p><span class="font-semibold">الهاتف:</span> ${d.user_phone || '—'}</p>
+                  <p><span class="font-semibold">الرصيد الحالي:</span> ${Number(d.balance).toLocaleString()} دج</p>
+                </div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-semibold text-gray-900 mb-2">تفاصيل السحب</h4>
+                <div class="space-y-2 text-sm">
+                  <p><span class="font-semibold">رقم الطلب:</span> #${d.id}</p>
+                  <p><span class="font-semibold">المبلغ:</span> ${Number(d.amount).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} دج</p>
+                  <p><span class="font-semibold">طريقة الدفع:</span> ${methodLabel}</p>
+                  ${methodExtra ? `<p><span class="font-semibold">بيانات الدفع:</span> ${methodExtra}</p>` : ''}
+                  <p><span class="font-semibold">الحالة:</span> ${d.status}</p>
+                  <p><span class="font-semibold">التاريخ:</span> ${d.created_at}</p>
+                  <p><span class="font-semibold">تاريخ المعالجة:</span> ${processed}</p>
+                  <p><span class="font-semibold">إثبات الدفع:</span> ${proof}</p>
+                </div>
               </div>
             </div>
-            
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold text-gray-900 mb-2">تفاصيل السحب</h4>
-              <div class="space-y-2 text-sm">
-                <p><span class="font-semibold">رقم الطلب:</span> #${withdrawalId}</p>
-                <p><span class="font-semibold">المبلغ:</span> 15,000.00 دج</p>
-                <p><span class="font-semibold">طريقة الدفع:</span> موبيلي</p>
-                <p><span class="font-semibold">رقم الهاتف:</span> 0555123456</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="bg-blue-50 rounded-lg p-4 mt-4">
-            <h4 class="font-semibold text-blue-900 mb-2">إحصائيات المسوق</h4>
-            <div class="grid grid-cols-3 gap-4 text-sm">
-              <div class="text-center">
-                <div class="font-bold text-blue-600">25,000.00 دج</div>
-                <div class="text-blue-700">الرصيد الحالي</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-green-600">8</div>
-                <div class="text-green-700">طلبات السحب</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-purple-600">85,000.00 دج</div>
-                <div class="text-purple-700">إجمالي المسحوب</div>
-              </div>
-            </div>
-          </div>
-        `;
-        document.getElementById('withdrawalDetailsContent').innerHTML = content;
-      }, 500);
+          `;
+        })
+        .catch(() => {
+          detailsEl.innerHTML = '<div class="text-center text-red-600 py-8">تعذر تحميل التفاصيل</div>';
+        });
     }
 
     function closeWithdrawalDetailsModal() {
@@ -1050,39 +1180,4 @@ try {
     }
   </style>
 </body>
-</html>text-sm font-semibold text-blue-600">#<?php echo $withdrawal['id']; ?></span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
-                              <i class="fa-solid fa-user text-xs"></i>
-                            </div>
-                            <div>
-                              <span class="text-sm font-semibold text-gray-900"><?php echo htmlspecialchars($withdrawal['username'] ?? 'غير محدد'); ?></span>
-                              <span class="text-xs text-gray-500 block">(<?php echo htmlspecialchars($withdrawal['store_name'] ?? 'غير محدد'); ?>)</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="px-4 py-3">
-                          <span class="text-sm font-bold text-green-600"><?php echo number_format($withdrawal['balance'], 2); ?> دج</span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <span class="text-sm font-bold text-red-600"><?php echo number_format($withdrawal['amount'], 2); ?> دج</span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <span class="text-sm text-gray-900"><?php echo number_format($withdrawal['total_withdrawals']); ?></span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <span class="text-sm font-bold text-blue-600"><?php echo number_format($withdrawal['total_withdrawn'], 2); ?> دج</span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <?php
-                          $paymentMethod = $withdrawal['payment_method'] ?? 'mobili';
-                          $paymentMethods = [
-                              'mobili' => ['text' => 'موبيلي', 'class' => 'payment-method-mobili', 'icon' => 'fa-mobile'],
-                              'ccp' => ['text' => 'بريد الجزائر', 'class' => 'payment-method-ccp', 'icon' => 'fa-building-columns'],
-                              'flexi' => ['text' => 'فليكسي', 'class' => 'payment-method-flexi', 'icon' => 'fa-credit-card']
-                          ];
-                          $method = $paymentMethods[$paymentMethod] ?? $paymentMethods['mobili'];
-                          ?>
-                          <span class="
+</html>
