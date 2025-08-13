@@ -766,10 +766,15 @@ try {
     let currentWithdrawalId = null;
 
     function openSidebar() {
-      const sidebar = document.querySelector('.sidebar');
+      if (typeof window.toggleSidebar === 'function') { toggleSidebar(); return; }
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
         sidebar.classList.toggle('open');
+        sidebar.style.transform = sidebar.classList.contains('open') ? 'translateX(0)' : 'translateX(100%)';
       }
+      if (overlay) { overlay.classList.toggle('hidden', !(sidebar && sidebar.classList.contains('open'))); }
+      document.body.style.overflow = (sidebar && sidebar.classList.contains('open')) ? 'hidden' : '';
     }
 
     function openEditWithdrawalModal(withdrawalId, currentStatus) {

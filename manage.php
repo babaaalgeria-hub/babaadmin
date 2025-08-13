@@ -1049,10 +1049,15 @@ try {
 
     // Sidebar functions (assuming admin_sidebar.php has these)
     function openSidebar() {
-      const sidebar = document.querySelector('.sidebar, [class*="sidebar"]');
+      if (typeof window.toggleSidebar === 'function') { toggleSidebar(); return; }
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
-        sidebar.classList.add('show');
+        sidebar.classList.toggle('open');
+        sidebar.style.transform = sidebar.classList.contains('open') ? 'translateX(0)' : 'translateX(100%)';
       }
+      if (overlay) { overlay.classList.toggle('hidden', !(sidebar && sidebar.classList.contains('open'))); }
+      document.body.style.overflow = (sidebar && sidebar.classList.contains('open')) ? 'hidden' : '';
     }
 
     // Performance monitoring
