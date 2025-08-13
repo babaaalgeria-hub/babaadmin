@@ -140,7 +140,7 @@ try {
       $withdrawn = 0.0;
       $pending = 0.0;
       // Delivered commissions
-      $q = $conn->prepare("\n        SELECT COALESCE(SUM(o.sale_price * COALESCE(p.commission_rate, 10) / 100), 0)\n        FROM orders o\n        LEFT JOIN products p ON o.product_id = p.id\n        WHERE o.user_id = ? AND o.status = 'delivered'\n      ");
+      $q = $conn->prepare("\n        SELECT COALESCE(SUM(GREATEST(o.sale_price - COALESCE(p.wholesale_price, 0), 0)), 0)\n        FROM orders o\n        LEFT JOIN products p ON o.product_id = p.id\n        WHERE o.user_id = ? AND o.status = 'delivered'\n      ");
       $q->execute([$userId]);
       $deliveredCommission = (float)$q->fetchColumn();
       // Withdrawn completed

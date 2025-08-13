@@ -180,7 +180,7 @@ try {
       <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div class="px-4 py-3 flex items-center justify-between">
           <div class="flex items-center gap-4">
-            <button id="mobileMenuBtn" onclick="openSidebar()" class="lg:hidden p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors">
+            <button id="mobileMenuBtn" onclick="(window.toggleSidebar?toggleSidebar:openSidebar)()" class="lg:hidden p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors">
               <i class="fa-solid fa-bars text-lg"></i>
             </button>
             <div class="flex items-center gap-2 font-bold text-gray-800">
@@ -518,10 +518,15 @@ try {
 
   <script>
     function openSidebar() {
-      const sidebar = document.querySelector('.sidebar');
+      if (typeof window.toggleSidebar === 'function') { toggleSidebar(); return; }
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
         sidebar.classList.toggle('open');
+        sidebar.style.transform = sidebar.classList.contains('open') ? 'translateX(0)' : 'translateX(100%)';
       }
+      if (overlay) { overlay.classList.toggle('hidden', !(sidebar && sidebar.classList.contains('open'))); }
+      document.body.style.overflow = (sidebar && sidebar.classList.contains('open')) ? 'hidden' : '';
     }
 
     // تأثيرات النموذج

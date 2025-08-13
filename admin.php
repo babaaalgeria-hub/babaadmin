@@ -68,7 +68,7 @@ try {
 
     // إجمالي الأرباح (من جميع الطلبات المكتملة)
     $q = $conn->prepare("
-        SELECT COALESCE(SUM(o.sale_price * COALESCE(p.commission_rate, 10) / 100), 0)
+        SELECT COALESCE(SUM(GREATEST(o.sale_price - COALESCE(p.wholesale_price, 0), 0)), 0)
         FROM orders o
         LEFT JOIN products p ON o.product_id = p.id
         WHERE o.status = 'delivered'
@@ -79,7 +79,7 @@ try {
     // الأرباح في انتظار السحب
     $q = $conn->prepare("
         SELECT COALESCE(SUM(w.amount), 0)
-        FROM withdrawal_requests w
+        FROM withdrawals w
         WHERE w.status = 'pending'
     ");
     $q->execute();
@@ -146,7 +146,7 @@ try {
     $withdrawalRequests = [];
     $q = $conn->prepare("
         SELECT w.*, u.username, u.phone
-        FROM withdrawal_requests w
+        FROM withdrawals w
         JOIN users u ON w.user_id = u.id
         WHERE w.status = 'pending'
         ORDER BY w.created_at DESC
@@ -501,11 +501,20 @@ try {
 
   <script>
     function openSidebar() {
-      // إضافة وظيفة فتح الشريط الجانبي للهاتف المحمول
-      const sidebar = document.querySelector('.sidebar');
+      if (typeof window.toggleSidebar === 'function') {
+        window.toggleSidebar();
+        return;
+      }
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
       if (sidebar) {
         sidebar.classList.toggle('open');
+        sidebar.style.transform = sidebar.classList.contains('open') ? 'translateX(0)' : 'translateX(100%)';
       }
+      if (overlay) {
+        overlay.classList.toggle('hidden', !(sidebar && sidebar.classList.contains('open')));
+      }
+      document.body.style.overflow = (sidebar && sidebar.classList.contains('open')) ? 'hidden' : '';
     }
 
     // تحديث الوقت الفعلي
