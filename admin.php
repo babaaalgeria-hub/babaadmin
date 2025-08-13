@@ -68,7 +68,7 @@ try {
 
     // إجمالي الأرباح (من جميع الطلبات المكتملة)
     $q = $conn->prepare("
-        SELECT COALESCE(SUM(o.sale_price * COALESCE(p.commission_rate, 10) / 100), 0)
+        SELECT COALESCE(SUM(GREATEST(o.sale_price - COALESCE(p.wholesale_price, 0), 0)), 0)
         FROM orders o
         LEFT JOIN products p ON o.product_id = p.id
         WHERE o.status = 'delivered'
@@ -79,7 +79,7 @@ try {
     // الأرباح في انتظار السحب
     $q = $conn->prepare("
         SELECT COALESCE(SUM(w.amount), 0)
-        FROM withdrawal_requests w
+        FROM withdrawals w
         WHERE w.status = 'pending'
     ");
     $q->execute();
@@ -146,7 +146,7 @@ try {
     $withdrawalRequests = [];
     $q = $conn->prepare("
         SELECT w.*, u.username, u.phone
-        FROM withdrawal_requests w
+        FROM withdrawals w
         JOIN users u ON w.user_id = u.id
         WHERE w.status = 'pending'
         ORDER BY w.created_at DESC

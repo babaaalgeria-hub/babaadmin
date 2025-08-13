@@ -100,7 +100,7 @@ try {
 
     // Get orders with pagination
     $ordersQuery = "
-        SELECT o.*, u.username, p.name as product_name, p.commission_rate
+        SELECT o.*, u.username, p.name as product_name, p.wholesale_price
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN products p ON o.product_id = p.id

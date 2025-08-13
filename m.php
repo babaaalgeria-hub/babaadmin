@@ -43,7 +43,7 @@ $totalEarnings = 0;
 try {
     // Calculate total earned commission from delivered orders
     $stmt = $conn->prepare("
-        SELECT COALESCE(SUM(o.sale_price * COALESCE(p.commission_rate, 10) / 100), 0) as total_commission
+        SELECT COALESCE(SUM(GREATEST(o.sale_price - COALESCE(p.wholesale_price, 0), 0)), 0) as total_commission
         FROM orders o
         LEFT JOIN products p ON o.product_id = p.id
         WHERE o.user_id = ? AND o.status = 'delivered'
